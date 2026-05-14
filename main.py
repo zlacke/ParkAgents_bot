@@ -29,8 +29,6 @@ def get_ad_text():
         text += "📋 Актуальные авто:\n"
         for name, price in cars:
             text += f"✅ {name} - {price}₽/сутки\n"
-    else:
-        text += "📋 Новые машины скоро!\n"
     return text
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -51,45 +49,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "add":
-        await query.edit_message_text('📝 Отправь: "Lada Vesta, 1500"')
         context.user_data["mode"] = "add_car"
+        await query.edit_message_text('📝 Отправь: "Lada Vesta, 1500"')
 
     elif query.data == "send":
-        if CHAT_ID:
-            await context.bot.send_message(chat_id=CHAT_ID, text=get_ad_text())
-            await query.edit_message_text("✅ В чат!")
-        else:
-            await query.edit_message_text("❌ Чат не найден. Сначала напиши что-то в группе")
+        await context.bot.send_message(chat_id=CHAT_ID, text=get_ad_text())
+        await query.edit_message_text("✅ В чат отправлено")
 
     elif query.data == "clear":
         cursor.execute("DELETE FROM cars")
         conn.commit()
-        await query.edit_message_text("🗑️ Очищено")
+        await query.edit_message_text("🗑️ База очищена")
 
-async def handle_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("mode") != "add_car":
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    low = text.lower()
+
+    if context.user_data.get("mode") == "add_car" and update.effective_user.id == ADMIN_ID:
+        match = re.match(r"(.+?),\s*(\d+)", text)
+        if match:
+            name, price = match.groups()
+            cursor.execute("INSERT INTO cars (name, price) VALUES (?, ?)", (name, price))
+            conn.commit()
+            await update.message.reply_text(f"✅ Добавлено: {name} - {price}₽")
+        else:
+            await update.message.reply_text("❌ Формат: Название, цена")
+        context.user_data.pop("mode", None)
         return
-    if update.effective_user.id != ADMIN_ID:
-        return
 
-    match = re.match(r"(.+?),\s*(\d+)", update.message.text.strip())
-    if match:
-        name, price = match.groups()
-        cursor.execute("INSERT INTO cars (name, price) VALUES (?, ?)", (name, price))
-        conn.commit()
-        await update.message.reply_text(f"✅ {name} добавлено")
-    else:
-        await update.message.reply_text("❌ Формат: Название, цена")
-
-    context.user_data.pop("mode", None)
-
-async def taxi_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global CHAT_ID
-    if CHAT_ID is None and update.message.chat.type in ["group", "supergroup"]:
-        CHAT_ID = update.message.chat.id
-        logging.info(f"Чат: {CHAT_ID}")
-
-    text = (update.message.text or "").lower()
     phrases = [
         "аренда",
         "нужна машина",
@@ -99,9 +86,13 @@ async def taxi_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "бренд",
         "сменщик",
         "процент парка",
+        "взять машину",
+        "частник",
     ]
-    if any(p in text for p in phrases):
+
+    if any(p in low for p in phrases):
         await update.message.reply_text(get_ad_text())
+        return
 
 logging.basicConfig(level=logging.INFO)
 print("🚀 ParkAgents_bot готов!")
@@ -109,6 +100,5 @@ print("🚀 ParkAgents_bot готов!")
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("admin", admin_panel))
 app.add_handler(CallbackQueryHandler(button_handler))
-app.add_handler(MessageHandler(filters.TEXT & filters.User(user_id=ADMIN_ID), handle_admin))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, taxi_trigger))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.run_polling()
