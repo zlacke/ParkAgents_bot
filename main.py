@@ -1,31 +1,17 @@
 import logging
-import re
 import sqlite3
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 TOKEN = "8407535870:AAEWI80Tq8Gr_F55V5S9PG6cuxCrnEeG3v8"
-ADMIN_USERNAME = "ElisavetaZ369"
-CHAT_ID = None
+ADMIN_ID = 919221270
+CHAT_ID = -1001453944871
 
 conn = sqlite3.connect("cars.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS cars (name TEXT, price TEXT)")
 conn.commit()
-
-PHRASES = [
-    "аренда",
-    "нужна машина",
-    "парк",
-    "аренду",
-    "ищу парк",
-    "прокат",
-    "бренд",
-    "сменщик",
-    "процент парка",
-    "взять машину",
-    "частник",
-]
 
 def get_ad_text():
     cursor.execute("SELECT name, price FROM cars")
@@ -43,11 +29,12 @@ def get_ad_text():
         text += "📋 Актуальные авто:\n"
         for name, price in cars:
             text += f"✅ {name} - {price}₽/сутки\n"
-        text += "\n"
+    else:
+        text += "📋 Новые машины скоро!\n"
     return text
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.username != ADMIN_USERNAME:
+    if update.effective_user.id != ADMIN_ID:
         return
     keyboard = [
         [InlineKeyboardButton("➕ Добавить авто", callback_data="add")],
@@ -66,21 +53,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "add":
         await query.edit_message_text('📝 Отправь: "Lada Vesta, 1500"')
         context.user_data["mode"] = "add_car"
+
     elif query.data == "send":
         if CHAT_ID:
             await context.bot.send_message(chat_id=CHAT_ID, text=get_ad_text())
-            await query.edit_message_text("✅ В чат отправлено")
+            await query.edit_message_text("✅ В чат!")
         else:
             await query.edit_message_text("❌ Чат не найден. Сначала напиши что-то в группе")
+
     elif query.data == "clear":
         cursor.execute("DELETE FROM cars")
         conn.commit()
-        await query.edit_message_text("🗑️ База очищена")
+        await query.edit_message_text("🗑️ Очищено")
 
-async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("mode") != "add_car":
         return
-    if update.effective_user.username != ADMIN_USERNAME:
+    if update.effective_user.id != ADMIN_ID:
         return
 
     match = re.match(r"(.+?),\s*(\d+)", update.message.text.strip())
@@ -88,7 +77,7 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         name, price = match.groups()
         cursor.execute("INSERT INTO cars (name, price) VALUES (?, ?)", (name, price))
         conn.commit()
-        await update.message.reply_text(f"✅ Добавлено: {name} - {price}₽")
+        await update.message.reply_text(f"✅ {name} добавлено")
     else:
         await update.message.reply_text("❌ Формат: Название, цена")
 
@@ -96,19 +85,30 @@ async def handle_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def taxi_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CHAT_ID
-    if update.message.chat.type in ["group", "supergroup"] and CHAT_ID is None:
+    if CHAT_ID is None and update.message.chat.type in ["group", "supergroup"]:
         CHAT_ID = update.message.chat.id
-        logging.info(f"CHAT_ID saved: {CHAT_ID}")
+        logging.info(f"Чат: {CHAT_ID}")
 
     text = (update.message.text or "").lower()
-    if any(p in text for p in PHRASES):
+    phrases = [
+        "аренда",
+        "нужна машина",
+        "парк",
+        "ищу парк",
+        "прокат",
+        "бренд",
+        "сменщик",
+        "процент парка",
+    ]
+    if any(p in text for p in phrases):
         await update.message.reply_text(get_ad_text())
 
 logging.basicConfig(level=logging.INFO)
+print("🚀 ParkAgents_bot готов!")
 
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("admin", admin_panel))
 app.add_handler(CallbackQueryHandler(button_handler))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_input))
+app.add_handler(MessageHandler(filters.TEXT & filters.User(user_id=ADMIN_ID), handle_admin))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, taxi_trigger))
 app.run_polling()
