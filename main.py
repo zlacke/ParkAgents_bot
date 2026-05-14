@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 TOKEN = ("8407535870:AAEWI80Tq8Gr_F55V5S9PG6cuxCrnEeG3v8")
-ADMIN_USERNAME = "ElisavetaZ369"
+ADMIN_USERNAME = 0
 CHAT_ID = None
 
 conn = sqlite3.connect('cars.db', check_same_thread=False)
