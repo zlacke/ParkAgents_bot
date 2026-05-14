@@ -79,6 +79,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     phrases = [
         "аренда",
+        "аренду",
         "нужна машина",
         "парк",
         "ищу парк",
