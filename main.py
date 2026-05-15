@@ -13,23 +13,60 @@ cursor = conn.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS cars (name TEXT, price TEXT)")
 conn.commit()
 
-def get_ad_text():
-    cursor.execute("SELECT name, price FROM cars")
-    cars = cursor.fetchall()
-    text = (
-        "🚖 Таксопарк 369: Авто + Поддержка 24/7\n"
-        "✅ Машины готовы к выезду — начинай зарабатывать сразу!\n"
-        "✅ Доступ в закрытый Клуб Водителей (2000+ участников)\n"
-        "✅ Юр. консультации, розыгрыши и помощь в любых ситуациях\n"
-        "🎁 Есть гостевой доступ — протестируй перед стартом!\n"
-        "👉 Подключиться: @ElisavetaZ369\n"
-        "━━━━━━━━━━━━\n"
-    )
-    if cars:
-        text += "📋 Актуальные авто:\n"
-        for name, price in cars:
-            text += f"✅ {name} - {price}₽/сутки\n"
-    return text
+# Словарь реклам
+ADS = {
+    "taxopark": {
+        "keywords": [
+            "аренда", "аренду", "нужна машина", "прокат",
+            "бренд", "раскат", "сменщик", "взять машину", "частник"
+        ],
+        "text": (
+            "🚖 Таксопарк 369: Авто + Поддержка 24/7\n"
+            "✅ Машины готовы к выезду — начинай зарабатывать сразу!\n"
+            "✅ Доступ в закрытый Клуб Водителей (2000+ участников)\n"
+            "✅ Юр. консультации, розыгрыши и помощь в любых ситуациях\n"
+            "🎁 Есть гостевой доступ — протестируй перед стартом!\n"
+            "👉 Подключиться: @ElisavetaZ369\n"
+            "━━━━━━━━━━━━\n"
+        )
+    },
+    "park_connection": {
+        "keywords": [
+            "парк", "ищу парк", "подключашка", "подключашку",
+            "низкий процент", "процент парка", "трудовой договор", "путевые"
+        ],
+        "text": (
+            "🚖 Работа в штате такси за 1 день! Без СМЗ и ИП.\n"
+            "Разрешение перевозчика подтверждено!\n"
+            "✅ Полностью легально: идет стаж, больничные и отпускные.\n"
+            "✅ Удаленно: любой город, оформление через Госключ.\n"
+            "💰 Условия: Комиссия от 6% (2% парк + 4% налог) или 8%. Моменталки — 1,5%.\n"
+            "❗️ Взнос за оформление: 5000 ₽.\n"
+            "Для регистрации нужны: ВУ, СТС, Паспорт, СНИЛС, ИНН и фото.\n"
+            "📲 Писать: @AlexParts2020\n"
+            "━━━━━━━━━━━━\n"
+        )
+    }
+}
+
+def get_ad_for_message(user_text):
+    """Возвращает рекламу + список авто, если найдено ключевое слово"""
+    user_text_lower = user_text.lower()
+    
+    for ad_name, ad_data in ADS.items():
+        for keyword in ad_data["keywords"]:
+            if keyword in user_text_lower:
+                # Добавляем список авто к рекламе
+                cursor.execute("SELECT name, price FROM cars")
+                cars = cursor.fetchall()
+                text = ad_data["text"]
+                if cars:
+                    text += "📋 Актуальные авто:\n"
+                    for name, price in cars:
+                        text += f"✅ {name} - {price}₽/сутки\n"
+                return text
+    
+    return None
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -53,7 +90,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text('📝 Отправь: "Lada Vesta, 1500"')
 
     elif query.data == "send":
-        await context.bot.send_message(chat_id=CHAT_ID, text=get_ad_text())
+        # Отправляем первую рекламу с авто в чат
+        cursor.execute("SELECT name, price FROM cars")
+        cars = cursor.fetchall()
+        text = ADS["taxopark"]["text"]
+        if cars:
+            text += "📋 Актуальные авто:\n"
+            for name, price in cars:
+                text += f"✅ {name} - {price}₽/сутки\n"
+        await context.bot.send_message(chat_id=CHAT_ID, text=text)
         await query.edit_message_text("✅ В чат отправлено")
 
     elif query.data == "clear":
@@ -63,8 +108,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
-    low = text.lower()
 
+    # Админ добавляет авто
     if context.user_data.get("mode") == "add_car" and update.effective_user.id == ADMIN_ID:
         match = re.match(r"(.+?),\s*(\d+)", text)
         if match:
@@ -77,23 +122,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("mode", None)
         return
 
-    phrases = [
-        "аренда",
-        "аренду",
-        "нужна машина",
-        "парк",
-        "ищу парк",
-        "прокат",
-        "бренд",
-        "сменщик",
-        "процент парка",
-        "взять машину",
-        "частник",
-    ]
-
-    if any(p in low for p in phrases):
-        await update.message.reply_text(get_ad_text())
-        return
+    # Проверяем ключевые слова → отправляем нужную рекламу
+    ad = get_ad_for_message(text)
+    if ad:
+        await update.message.reply_text(ad)
 
 logging.basicConfig(level=logging.INFO)
 print("🚀 ParkAgents_bot готов!")
