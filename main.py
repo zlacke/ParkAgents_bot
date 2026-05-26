@@ -6,9 +6,9 @@ import atexit
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TG_TOKEN")
 if not TOKEN:
-    raise RuntimeError("❌ TOKEN не найден! Добавь переменную 'TOKEN' в панели Bothost")
+    raise RuntimeError("❌ TG_TOKEN не найден! Добавь переменную 'TG_TOKEN' в панели Bothost")
 
 ADMIN_ID = 919221270
 CHAT_ID = -1001453944871
