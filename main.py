@@ -98,6 +98,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not query:
+        return
     await query.answer()
 
     if query.data == "add":
@@ -125,7 +127,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🗑️ База очищена")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (update.message.text or "").strip()
+    # 🔥 ВАЖНО: проверяем, что message существует
+    if update.message is None:
+        return
+    
+    text = getattr(update.message, "text", "") or ""
+    text = text.strip()
+    
+    if not text:
+        return
 
     # Админ добавляет авто
     if context.user_data.get("mode") == "add_car" and update.effective_user.id == ADMIN_ID:
@@ -148,11 +158,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ad:
         await update.message.reply_text(ad)
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Глобальный обработчик ошибок — чтобы бот не падал"""
+    logging.error(msg="Exception while handling an update:", exc_info=context.error)
+    # Можно добавить уведомление админу:
+    # if ADMIN_ID:
+    #     await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Ошибка: {context.error}")
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO
+    )
     print("🚀 ParkAgents_bot готов!")
 
     app = Application.builder().token(TOKEN).build()
+    
+    # 🔥 Регистрируем обработчик ошибок
+    app.add_error_handler(error_handler)
+    
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
