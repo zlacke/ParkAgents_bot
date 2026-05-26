@@ -8,6 +8,7 @@ TOKEN = "8407535870:AAEWI80Tq8Gr_F55V5S9PG6cuxCrnEeG3v8"
 ADMIN_ID = 919221270
 CHAT_ID = -1001453944871
 
+# Подключение к БД
 conn = sqlite3.connect("cars.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS cars (name TEXT, price TEXT)")
@@ -44,7 +45,6 @@ ADS = {
             "Для регистрации нужны: ВУ, СТС, Паспорт, СНИЛС, ИНН и фото.\n"
             "📲 Писать: @AlexParts2020 \n"
             "━━━━━━━━━━━━\n"
-
         )
     },
     "park_connection": {
@@ -53,31 +53,34 @@ ADS = {
         ],
         "text": (
             "Подключайся к Яндекс Такси всего за 5 минут! 🚕\n"
-        "Комиссия парка от 1-2%, моментальный вывод 24/7 и круглосуточная поддержка.\n"
-        "Пиши «Хочу подключиться» прямо сейчас: @zp_help. 🚀\n"
-        "#ЯндексТакси #подключение #работа #такси #вывод #поддержка\n"
-        "━━━━━━━━━━━━\n"
+            "Комиссия парка от 1-2%, моментальный вывод 24/7 и круглосуточная поддержка.\n"
+            "Пиши «Хочу подключиться» прямо сейчас: @zp_help. 🚀\n"
+            "#ЯндексТакси #подключение #работа #такси #вывод #поддержка\n"
+            "━━━━━━━━━━━━\n"
         )
     }
 }
 
 def get_ad_for_message(user_text):
-    """Возвращает рекламу + список авто, если найдено ключевое слово"""
-    user_text_lower = user_text.lower()
-    
+    """Возвращает рекламу + список авто, если найдено ключевое слово (ТОЧНОЕ СОВПАДЕНИЕ)"""
     for ad_name, ad_data in ADS.items():
         for keyword in ad_data["keywords"]:
-            if keyword in user_text_lower:
-                # Добавляем список авто к рекламе
-                cursor.execute("SELECT name, price FROM cars")
-                cars = cursor.fetchall()
+            # \b - граница слова, re.escape - защита спецсимволов, (?i) - регистронезависимость
+            pattern = r'(?i)\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, user_text):
+                try:
+                    cursor.execute("SELECT name, price FROM cars")
+                    cars = cursor.fetchall()
+                except sqlite3.Error as e:
+                    logging.error(f"DB Error: {e}")
+                    cars = []
+                
                 text = ad_data["text"]
                 if cars:
                     text += "📋 Актуальные авто:\n"
                     for name, price in cars:
                         text += f"✅ {name} - {price}₽/сутки\n"
                 return text
-    
     return None
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,9 +105,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text('📝 Отправь: "Lada Vesta, 1500"')
 
     elif query.data == "send":
-        # Отправляем первую рекламу с авто в чат
-        cursor.execute("SELECT name, price FROM cars")
-        cars = cursor.fetchall()
+        try:
+            cursor.execute("SELECT name, price FROM cars")
+            cars = cursor.fetchall()
+        except sqlite3.Error:
+            cars = []
+            
         text = ADS["taxopark"]["text"]
         if cars:
             text += "📋 Актуальные авто:\n"
@@ -126,9 +132,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         match = re.match(r"(.+?),\s*(\d+)", text)
         if match:
             name, price = match.groups()
-            cursor.execute("INSERT INTO cars (name, price) VALUES (?, ?)", (name, price))
-            conn.commit()
-            await update.message.reply_text(f"✅ Добавлено: {name} - {price}₽")
+            try:
+                cursor.execute("INSERT INTO cars (name, price) VALUES (?, ?)", (name.strip(), price.strip()))
+                conn.commit()
+                await update.message.reply_text(f"✅ Добавлено: {name} - {price}₽")
+            except sqlite3.Error as e:
+                await update.message.reply_text(f"❌ Ошибка БД: {e}")
         else:
             await update.message.reply_text("❌ Формат: Название, цена")
         context.user_data.pop("mode", None)
@@ -139,11 +148,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ad:
         await update.message.reply_text(ad)
 
-logging.basicConfig(level=logging.INFO)
-print("🚀 ParkAgents_bot готов!")
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    print("🚀 ParkAgents_bot готов!")
 
-app = Application.builder().token(TOKEN).build()
-app.add_handler(CommandHandler("admin", admin_panel))
-app.add_handler(CallbackQueryHandler(button_handler))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-app.run_polling()
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
+    app.run_polling()
