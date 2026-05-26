@@ -1,10 +1,16 @@
 import logging
 import sqlite3
 import re
+import os
+import atexit
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
-TOKEN = "8407535870:AAEWI80Tq8Gr_F55V5S9PG6cuxCrnEeG3v8"
+# 🔐 Токен берётся из переменных окружения Bothost
+TOKEN = os.getenv("TOKEN")  # Bothost сам подставит значение из панели
+if not TOKEN:
+    raise RuntimeError("❌ TOKEN не найден! Добавь переменную 'TOKEN' в панели Bothost")
+
 ADMIN_ID = 919221270
 CHAT_ID = -1001453944871
 
@@ -14,7 +20,11 @@ cursor = conn.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS cars (name TEXT, price TEXT)")
 conn.commit()
 
-# Словарь реклам
+def close_db():
+    if conn:
+        conn.close()
+atexit.register(close_db)
+
 ADS = {
     "taxopark": {
         "keywords": [
@@ -62,10 +72,8 @@ ADS = {
 }
 
 def get_ad_for_message(user_text):
-    """Возвращает рекламу + список авто, если найдено ключевое слово (ТОЧНОЕ СОВПАДЕНИЕ)"""
     for ad_name, ad_data in ADS.items():
         for keyword in ad_data["keywords"]:
-            # \b - граница слова, re.escape - защита спецсимволов, (?i) - регистронезависимость
             pattern = r'(?i)\b' + re.escape(keyword) + r'\b'
             if re.search(pattern, user_text):
                 try:
@@ -89,7 +97,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("➕ Добавить авто", callback_data="add")],
         [InlineKeyboardButton("📢 В чат", callback_data="send")],
-        [InlineKeyboardButton("🗑️ Очистить", callback_data="clear")],
+        [InlineKeyboardButton("🗑️ Очистить", callback_data="clear_confirm")],
     ]
     await update.message.reply_text(
         "🚗 PARK AGENTS АДМИН",
@@ -100,13 +108,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("⛔️ Доступ запрещен", show_alert=True)
+        return
 
-    if query.data == "add":
+    await query.answer()
+    action = query.data
+
+    if action == "add":
         context.user_data["mode"] = "add_car"
         await query.edit_message_text('📝 Отправь: "Lada Vesta, 1500"')
 
-    elif query.data == "send":
+    elif action == "send":
         try:
             cursor.execute("SELECT name, price FROM cars")
             cars = cursor.fetchall()
@@ -121,13 +135,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=CHAT_ID, text=text)
         await query.edit_message_text("✅ В чат отправлено")
 
-    elif query.data == "clear":
+    elif action == "clear_confirm":
+        keyboard = [
+            [InlineKeyboardButton("⚠️ Да, удалить всё", callback_data="clear_execute")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="clear_cancel")]
+        ]
+        await query.edit_message_text(
+            "❗️ Вы уверены? Это действие нельзя отменить.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif action == "clear_execute":
         cursor.execute("DELETE FROM cars")
         conn.commit()
-        await query.edit_message_text("🗑️ База очищена")
+        await query.edit_message_text("🗑️ База данных полностью очищена.")
+    
+    elif action == "clear_cancel":
+        await query.edit_message_text("🆗 Операция отменена.")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 🔥 ВАЖНО: проверяем, что message существует
     if update.message is None:
         return
     
@@ -137,9 +163,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
-    # Админ добавляет авто
     if context.user_data.get("mode") == "add_car" and update.effective_user.id == ADMIN_ID:
-        match = re.match(r"(.+?),\s*(\d+)", text)
+        match = re.match(r"(.+?),\s*([\d\s]+)", text)
         if match:
             name, price = match.groups()
             try:
@@ -149,32 +174,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except sqlite3.Error as e:
                 await update.message.reply_text(f"❌ Ошибка БД: {e}")
         else:
-            await update.message.reply_text("❌ Формат: Название, цена")
+            await update.message.reply_text("❌ Формат: Название, цена (например: Kia Rio, 1800)")
         context.user_data.pop("mode", None)
         return
 
-    # Проверяем ключевые слова → отправляем нужную рекламу
     ad = get_ad_for_message(text)
     if ad:
         await update.message.reply_text(ad)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Глобальный обработчик ошибок — чтобы бот не падал"""
     logging.error(msg="Exception while handling an update:", exc_info=context.error)
-    # Можно добавить уведомление админу:
-    # if ADMIN_ID:
-    #     await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Ошибка: {context.error}")
 
 if __name__ == "__main__":
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO
     )
-    print("🚀 ParkAgents_bot готов!")
+    print("🚀 ParkAgents_bot готов к запуску на Bothost!")
 
     app = Application.builder().token(TOKEN).build()
     
-    # 🔥 Регистрируем обработчик ошибок
     app.add_error_handler(error_handler)
     
     app.add_handler(CommandHandler("admin", admin_panel))
