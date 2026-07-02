@@ -2,6 +2,7 @@ import logging
 import sqlite3
 import re
 import os
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
@@ -57,8 +58,22 @@ ADS = {
             "#ЯндексТакси #подключение #работа #такси #вывод #поддержка\n"
             "━━━━━━━━━━━━\n"
         )
+    },
+    "waybill": {
+        "keywords": ["путевой лист", "путевки", "эпл"],
+        "text": (
+            "📑 ЭЛЕКТРОННЫЙ ПУТЕВОЙ ЛИСТ НА РЕЙДЫ БЕСПЛАТНО!\n\n"
+            "Всего от 1199 рублей в месяц!\n\n"
+            "Мы от Золотого Парка\n\n"
+            "Писать сюда:\n"
+            "@AlexParts2020\n"
+            "━━━━━━━━━━━━\n"
+        )
     }
 }
+
+AD_COOLDOWN = {}  # user_id -> timestamp of last ad sent
+COOLDOWN_SECONDS = 3600  # 1 hour
 
 def normalize_text(text: str) -> str:
     return " ".join((text or "").lower().split())
@@ -148,10 +163,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("mode", None)
         return
 
-    # Поиск рекламы
+    # Поиск рекламы с таймаутом
     ad = get_ad_for_message(text)
     if ad:
-        await update.message.reply_text(ad)
+        user_id = update.effective_user.id
+        now = time.time()
+        last_ad = AD_COOLDOWN.get(user_id, 0)
+        if now - last_ad >= COOLDOWN_SECONDS:
+            AD_COOLDOWN[user_id] = now
+            await update.message.reply_text(ad)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error(f"Update {update} caused error {context.error}")
