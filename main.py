@@ -65,10 +65,9 @@ ADS = {
             "📑 ЭЛЕКТРОННЫЙ ПУТЕВОЙ ЛИСТ НА РЕЙДЫ!\n"
             "Всего от 1199 рублей в месяц!\n"
             "Мы от Золотого Парка\n"
-            "Писать сюда:\n"
-            "@AlexParts2020\n"
             "━━━━━━━━━━━━\n"
-        )
+        ),
+        "keyboard": [[InlineKeyboardButton("📲 Писать", url="https://t.me/AlexParts2020")]]
     }
 }
 
@@ -101,8 +100,9 @@ def get_ad_for_message(user_text):
                     ad_text += "📋 Актуальные авто:\n"
                     for name, price in cars:
                         ad_text += f"✅ {name} - {price}₽/сутки\n"
-                return ad_text
-    return None
+                keyboard = ad_data.get("keyboard")
+                return ad_text, keyboard
+    return None, None
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -164,14 +164,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Поиск рекламы с таймаутом
-    ad = get_ad_for_message(text)
+    ad, keyboard = get_ad_for_message(text)
     if ad:
         user_id = update.effective_user.id
         now = time.time()
         last_ad = AD_COOLDOWN.get(user_id, 0)
         if now - last_ad >= COOLDOWN_SECONDS:
             AD_COOLDOWN[user_id] = now
-            await update.message.reply_text(ad)
+            if keyboard:
+                await update.message.reply_text(ad, reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                await update.message.reply_text(ad)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error(f"Update {update} caused error {context.error}")
